@@ -1,0 +1,18 @@
+[project]
+name = "routeabout"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.116.0",
+    "pylark>=0.0.13",
+]
+
+[dependency-groups]
+dspy = [
+    "dspy>=2.5.26",
+]
+poc = [
+    "jupyter>=1.1.1",
+]
