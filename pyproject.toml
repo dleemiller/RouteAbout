@@ -21,6 +21,7 @@ poc = [
     "jupyter>=1.1.1",
 ]
 stvim = [
+    "prompt-toolkit>=3.0.51",
     "pynvim>=0.5.2",
     "rich>=14.0.0",
 ]

@@ -1,25 +1,44 @@
 #!/usr/bin/env python3
 """
-DSL Demo CLI Tool
+DSL Demo CLI Tool with Fixed Terminal Input
 
-A command-line interface for testing the Neovim DSL commands.
+A command-line interface for testing the Neovim DSL commands with proper
+arrow key support, command history, and cursor movement.
 """
 
 import argparse
 import sys
 import pynvim
 from pathlib import Path
+from typing import List, Optional
 
 # Rich imports for beautiful terminal output
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.prompt import Prompt
 from rich.syntax import Syntax
 from rich.columns import Columns
 from rich.align import Align
+from rich.pager import Pager
 from rich import box
+
+# Terminal input solution - try prompt_toolkit first, fallback to readline
+try:
+    from prompt_toolkit import prompt
+    from prompt_toolkit.history import InMemoryHistory
+    from prompt_toolkit.completion import WordCompleter
+    from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+    from prompt_toolkit.shortcuts import CompleteStyle
+    USING_PROMPT_TOOLKIT = True
+except ImportError:
+    USING_PROMPT_TOOLKIT = False
+    # Fallback to readline + Rich console.input()
+    try:
+        import readline
+        USING_READLINE = True
+    except ImportError:
+        USING_READLINE = False
 
 # Add src directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -28,6 +47,104 @@ from route_about.stvim import NvimDSLExecutor
 
 # Initialize Rich console
 console = Console()
+
+
+class EnhancedPromptHandler:
+    """Handles enhanced terminal input with history and completion."""
+    
+    def __init__(self):
+        self.command_history: List[str] = []
+        
+        if USING_PROMPT_TOOLKIT:
+            # Set up prompt_toolkit with history and completion
+            self.history = InMemoryHistory()
+            
+            # DSL commands for auto-completion
+            dsl_commands = [
+                'INSERT', 'DELETE LINES', 'GOTO LINE', 'FIND', 'REPLACE',
+                'VISUAL LINES', 'AT LINE', 'TO', 'WITH', 'help', 'show', 
+                'clear', 'history', 'quit', 'exit'
+            ]
+            self.completer = WordCompleter(dsl_commands, ignore_case=True)
+            
+        elif USING_READLINE:
+            # Configure readline for history
+            readline.parse_and_bind('tab: complete')
+            readline.parse_and_bind('"\\e[A": history-search-backward')
+            readline.parse_and_bind('"\\e[B": history-search-forward')
+            
+            # Set up completion function
+            def complete_dsl(text, state):
+                dsl_commands = [
+                    'INSERT', 'DELETE LINES', 'GOTO LINE', 'FIND', 'REPLACE',
+                    'VISUAL LINES', 'AT LINE', 'TO', 'WITH', 'help', 'show', 
+                    'clear', 'history', 'quit', 'exit'
+                ]
+                matches = [cmd for cmd in dsl_commands if cmd.lower().startswith(text.lower())]
+                try:
+                    return matches[state]
+                except IndexError:
+                    return None
+            
+            readline.set_completer(complete_dsl)
+    
+    def get_input(self, prompt_text: str = "stvim") -> str:
+        """Get input with enhanced terminal features."""
+        if USING_PROMPT_TOOLKIT:
+            try:
+                # Use prompt_toolkit for the best experience
+                result = prompt(
+                    f"{prompt_text}> ",
+                    history=self.history,
+                    completer=self.completer,
+                    complete_style=CompleteStyle.READLINE_LIKE,
+                    auto_suggest=AutoSuggestFromHistory(),
+                    enable_history_search=True,
+                )
+                
+                # Add to our internal history (avoid duplicates)
+                if result.strip() and result.strip() not in self.command_history:
+                    self.command_history.append(result.strip())
+                    if len(self.command_history) > 100:  # Keep reasonable size
+                        self.command_history.pop(0)
+                
+                return result.strip()
+                
+            except (KeyboardInterrupt, EOFError):
+                raise KeyboardInterrupt()
+                
+        elif USING_READLINE:
+            try:
+                # Use Rich console.input() with readline
+                console.print(f"[bold green]{prompt_text}[/bold green]> ", end="")
+                result = console.input()
+                
+                # Add to readline history
+                if result.strip():
+                    readline.add_history(result.strip())
+                    
+                # Add to our internal history
+                if result.strip() and result.strip() not in self.command_history:
+                    self.command_history.append(result.strip())
+                    if len(self.command_history) > 100:
+                        self.command_history.pop(0)
+                
+                return result.strip()
+                
+            except (KeyboardInterrupt, EOFError):
+                raise KeyboardInterrupt()
+        else:
+            # Fallback to basic Rich Prompt (limited functionality)
+            console.print(f"[yellow]⚠️  Limited input mode - install prompt_toolkit for full features[/yellow]")
+            from rich.prompt import Prompt
+            result = Prompt.ask(f"[bold green]{prompt_text}[/bold green]", default="").strip()
+            
+            if result and result not in self.command_history:
+                self.command_history.append(result)
+                if len(self.command_history) > 50:
+                    self.command_history.pop(0)
+            
+            return result
 
 
 def connect_to_nvim(socket_path: str = "/tmp/nvim_socket") -> pynvim.Nvim:
@@ -76,8 +193,16 @@ def show_welcome_banner():
     title = Text("RouteAbout DSL Demo", style="bold magenta")
     subtitle = Text("Natural language commands for Neovim", style="italic cyan")
     
+    # Show input method info
+    if USING_PROMPT_TOOLKIT:
+        input_info = Text("✨ Enhanced input with prompt_toolkit", style="green")
+    elif USING_READLINE:
+        input_info = Text("📝 Using readline for history support", style="yellow")
+    else:
+        input_info = Text("⚠️  Basic input mode (install prompt_toolkit for best experience)", style="red")
+    
     welcome_panel = Panel(
-        Align.center(f"{title}\n{subtitle}"),
+        Align.center(f"{title}\n{subtitle}\n\n{input_info}"),
         box=box.DOUBLE,
         padding=(1, 2),
         style="bright_blue"
@@ -160,12 +285,61 @@ def run_demo_commands(executor: NvimDSLExecutor, nvim: pynvim.Nvim):
 
 def interactive_mode(executor: NvimDSLExecutor, nvim: pynvim.Nvim):
     """Run in interactive mode where user can enter commands."""
+    
+    # Initialize the enhanced prompt handler
+    prompt_handler = EnhancedPromptHandler()
+    
     console.print("\n" + "=" * 60)
     
+    # Show different instructions based on input method
+    if USING_PROMPT_TOOLKIT:
+        features_text = (
+            "[bold cyan]Interactive Mode[/bold cyan] [green](Enhanced with prompt_toolkit)[/green]\n\n"
+            "[yellow]Navigation:[/yellow]\n"
+            "• ↑/↓ arrows - Navigate command history\n"
+            "• ←/→ arrows - Move cursor within line\n"
+            "• Home/End - Move to start/end of line\n"
+            "• Tab - Auto-complete commands\n"
+            "• Ctrl+R - Reverse search history\n\n"
+            "[yellow]Commands:[/yellow]\n"
+            "[yellow]help[/yellow] - Show examples and shortcuts\n"
+            "[yellow]show[/yellow] - View current buffer\n"
+            "[yellow]clear[/yellow] - Clear screen\n"
+            "[yellow]history[/yellow] - Show command history\n"
+            "[yellow]quit[/yellow] - Exit\n\n"
+            "[dim]💡 Tip: Use Ctrl+C to exit anytime[/dim]"
+        )
+    elif USING_READLINE:
+        features_text = (
+            "[bold cyan]Interactive Mode[/bold cyan] [yellow](Using readline)[/yellow]\n\n"
+            "[yellow]Navigation:[/yellow]\n"
+            "• ↑/↓ arrows - Navigate command history\n"
+            "• ←/→ arrows - Move cursor within line\n"
+            "• Home/End - Move to start/end of line\n\n"
+            "[yellow]Commands:[/yellow]\n"
+            "[yellow]help[/yellow] - Show examples and shortcuts\n"
+            "[yellow]show[/yellow] - View current buffer\n"
+            "[yellow]clear[/yellow] - Clear screen\n"
+            "[yellow]history[/yellow] - Show command history\n"
+            "[yellow]quit[/yellow] - Exit\n\n"
+            "[dim]💡 Tip: Use Ctrl+C to exit anytime[/dim]"
+        )
+    else:
+        features_text = (
+            "[bold cyan]Interactive Mode[/bold cyan] [red](Limited input)[/red]\n\n"
+            "[yellow]Install prompt_toolkit for enhanced features:[/yellow]\n"
+            "[cyan]pip install prompt_toolkit[/cyan]\n\n"
+            "[yellow]Commands:[/yellow]\n"
+            "[yellow]help[/yellow] - Show examples and shortcuts\n"
+            "[yellow]show[/yellow] - View current buffer\n"
+            "[yellow]clear[/yellow] - Clear screen\n"
+            "[yellow]history[/yellow] - Show command history\n"
+            "[yellow]quit[/yellow] - Exit\n\n"
+            "[dim]💡 Tip: Use Ctrl+C to exit anytime[/dim]"
+        )
+    
     interactive_panel = Panel(
-        "[bold cyan]Interactive Mode[/bold cyan]\n\n"
-        "Enter DSL commands below. Type [yellow]'help'[/yellow] for examples, "
-        "[yellow]'show'[/yellow] to view buffer, [yellow]'quit'[/yellow] to exit.",
+        features_text,
         title="🎮 Interactive DSL Shell",
         box=box.DOUBLE,
         border_style="magenta"
@@ -178,16 +352,25 @@ def interactive_mode(executor: NvimDSLExecutor, nvim: pynvim.Nvim):
     
     while True:
         try:
-            cmd = Prompt.ask("\n[bold green]stvim[/bold green]", default="").strip()
+            # Get input with enhanced terminal features
+            cmd = prompt_handler.get_input("stvim")
             
             if cmd.lower() in ['quit', 'exit', 'q']:
                 console.print("[yellow]👋[/yellow] Thanks for using RouteAbout DSL!")
                 break
             elif cmd.lower() == 'help':
                 show_help_examples()
+                show_keyboard_shortcuts()
                 continue
             elif cmd.lower() == 'show':
                 show_buffer_content(nvim)
+                continue
+            elif cmd.lower() == 'clear':
+                console.clear()
+                console.print("[green]✓[/green] Screen cleared")
+                continue
+            elif cmd.lower() == 'history':
+                show_command_history(prompt_handler.command_history)
                 continue
             elif cmd == '':
                 continue
@@ -201,6 +384,83 @@ def interactive_mode(executor: NvimDSLExecutor, nvim: pynvim.Nvim):
             break
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
+
+
+def show_keyboard_shortcuts():
+    """Show helpful keyboard shortcuts."""
+    if USING_PROMPT_TOOLKIT:
+        shortcuts_text = (
+            "[bold yellow]Keyboard Shortcuts & Tips[/bold yellow]\n\n"
+            "[cyan]↑/↓[/cyan] - Navigate command history\n"
+            "[cyan]←/→[/cyan] - Move cursor left/right\n"
+            "[cyan]Home/End[/cyan] - Move to start/end of line\n"
+            "[cyan]Ctrl+A/E[/cyan] - Alternative start/end of line\n"
+            "[cyan]Ctrl+K[/cyan] - Delete from cursor to end of line\n"
+            "[cyan]Ctrl+U[/cyan] - Delete entire line\n"
+            "[cyan]Ctrl+W[/cyan] - Delete word before cursor\n"
+            "[cyan]Ctrl+R[/cyan] - Reverse search history\n"
+            "[cyan]Tab[/cyan] - Auto-complete commands\n"
+            "[cyan]Ctrl+C[/cyan] - Exit interactive mode\n\n"
+            "[dim]Full readline functionality available![/dim]"
+        )
+    elif USING_READLINE:
+        shortcuts_text = (
+            "[bold yellow]Keyboard Shortcuts & Tips[/bold yellow]\n\n"
+            "[cyan]↑/↓[/cyan] - Navigate command history\n"
+            "[cyan]←/→[/cyan] - Move cursor left/right\n"
+            "[cyan]Home/End[/cyan] - Move to start/end of line\n"
+            "[cyan]Ctrl+A/E[/cyan] - Alternative start/end of line\n"
+            "[cyan]Ctrl+K[/cyan] - Delete from cursor to end of line\n"
+            "[cyan]Ctrl+U[/cyan] - Delete entire line\n"
+            "[cyan]Ctrl+W[/cyan] - Delete word before cursor\n"
+            "[cyan]Ctrl+C[/cyan] - Exit interactive mode\n\n"
+            "[dim]Basic readline functionality available[/dim]"
+        )
+    else:
+        shortcuts_text = (
+            "[bold yellow]Keyboard Shortcuts & Tips[/bold yellow]\n\n"
+            "[cyan]Ctrl+C[/cyan] - Exit interactive mode\n"
+            "[red]Limited input mode[/red] - Install prompt_toolkit for:\n"
+            "• Arrow key navigation\n"
+            "• Command history\n"
+            "• Cursor movement\n"
+            "• Auto-completion\n\n"
+            "[cyan]pip install prompt_toolkit[/cyan]"
+        )
+    
+    shortcuts_panel = Panel(
+        shortcuts_text,
+        title="⌨️  Shortcuts",
+        box=box.ROUNDED,
+        border_style="yellow"
+    )
+    console.print(shortcuts_panel)
+
+
+def show_command_history(command_history: List[str]):
+    """Display command history."""
+    if not command_history:
+        console.print("[yellow]No command history yet[/yellow]")
+        return
+    
+    table = Table(title="Command History", box=box.ROUNDED, title_style="bold cyan")
+    table.add_column("#", style="dim", width=3, justify="right")
+    table.add_column("Command", style="white")
+    
+    # Show last 20 commands
+    recent_history = command_history[-20:] if len(command_history) > 20 else command_history
+    start_num = len(command_history) - len(recent_history) + 1
+    
+    for i, cmd in enumerate(recent_history, start_num):
+        table.add_row(str(i), cmd)
+    
+    # Use pager for long history
+    if len(command_history) > 20:
+        with console.pager():
+            console.print(table)
+        console.print(f"[dim]Showing last 20 of {len(command_history)} commands[/dim]")
+    else:
+        console.print(table)
 
 
 def show_help_examples():
@@ -226,11 +486,14 @@ def main():
         description="RouteAbout DSL Demo - Natural language commands for Neovim",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-[bold]Examples:[/bold]
-  uv run demo.py --demo                          # Run predefined demo
-  uv run demo.py --interactive                   # Interactive mode
-  uv run demo.py --command 'INSERT "Hello!"'     # Execute single command
-  uv run demo.py --socket /tmp/my_nvim          # Use custom socket path
+Examples:
+  python demo.py --demo                          # Run predefined demo
+  python demo.py --interactive                   # Interactive mode
+  python demo.py --command 'INSERT "Hello!"'     # Execute single command
+  python demo.py --socket /tmp/my_nvim          # Use custom socket path
+
+For best experience, install prompt_toolkit:
+  pip install prompt_toolkit
         """
     )
     
@@ -308,3 +571,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
