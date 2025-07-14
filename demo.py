@@ -13,7 +13,7 @@ from pathlib import Path
 # Add src directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from route_about.transformers.stvim import NvimDSLExecutor
+from route_about.stvim import NvimDSLExecutor
 
 
 def connect_to_nvim(socket_path: str = "/tmp/nvim_socket") -> pynvim.Nvim:
