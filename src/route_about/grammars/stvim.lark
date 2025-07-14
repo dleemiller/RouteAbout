@@ -1,0 +1,30 @@
+start: command+
+
+command: visual_lines
+       | insert_text  
+       | delete_lines
+       | goto_line
+       | find_text
+       | replace_text
+
+visual_lines: "VISUAL"i "LINES"i NUMBER "TO"i NUMBER
+
+insert_text: "INSERT"i STRING (at_line)?
+at_line: "AT"i "LINE"i NUMBER
+
+delete_lines: "DELETE"i "LINES"i NUMBER "TO"i NUMBER
+
+goto_line: "GOTO"i "LINE"i NUMBER
+
+find_text: "FIND"i STRING
+
+replace_text: "REPLACE"i STRING "WITH"i STRING
+
+// Terminals
+STRING: ESCAPED_STRING
+NUMBER: /\d+/
+
+// Import common terminals for string handling
+%import common.ESCAPED_STRING
+%import common.WS
+%ignore WS
