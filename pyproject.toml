@@ -3,10 +3,11 @@ name = "routeabout"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12, <3.13"
 dependencies = [
     "fastapi>=0.116.0",
     "lark>=1.2.2",
+    "prompt-toolkit>=3.0.51",
     "pylark>=0.0.13",
 ]
 
@@ -15,7 +16,7 @@ dev = [
     "ruff>=0.12.3",
 ]
 dspy = [
-    "dspy>=2.5.26",
+    "dspy",
 ]
 poc = [
     "jupyter>=1.1.1",
@@ -25,3 +26,20 @@ stvim = [
     "pynvim>=0.5.2",
     "rich>=14.0.0",
 ]
+tts = [
+    "fastapi>=0.116.1",
+    "faster-whisper>=1.1.1",
+    "faster-whisper-server @ git+https://github.com/etalab-ia/faster-whisper-server.git",
+    "ffmpeg-python>=0.2.0",
+    "gradio>=5.37.0",
+    "httpx>=0.28.1",
+    "httpx-sse>=0.4.1",
+    "scipy>=1.16.0",
+    "sounddevice>=0.5.2",
+    "uvicorn>=0.35.0",
+]
+
+[project.scripts]
+run-tts = "route_about.tts.server:run_whisper_server"
+
+
