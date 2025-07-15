@@ -2,17 +2,20 @@ start: command+
 
 command: visual_lines
        | insert_text  
-       | delete_lines
+       | delete_command
        | goto_line
        | find_text
        | replace_text
 
-visual_lines: "VISUAL"i "LINES"i NUMBER "TO"i NUMBER
+visual_lines: "VISUAL"i lines_range
 
-insert_text: "INSERT"i STRING (at_line)?
+insert_text: "INSERT"i (MULTILINE_STRING | STRING) (at_line)?
 at_line: "AT"i "LINE"i NUMBER
 
-delete_lines: "DELETE"i "LINES"i NUMBER "TO"i NUMBER
+delete_command: "DELETE"i (delete_target)?
+delete_target: lines_range
+
+lines_range: "LINES"i NUMBER "TO"i NUMBER
 
 goto_line: "GOTO"i "LINE"i NUMBER
 
@@ -20,7 +23,8 @@ find_text: "FIND"i STRING
 
 replace_text: "REPLACE"i STRING "WITH"i STRING
 
-// Terminals
+// Terminals - Give MULTILINE_STRING higher priority than ESCAPED_STRING
+MULTILINE_STRING.10: /"""(.|\n)*?"""/s
 STRING: ESCAPED_STRING
 NUMBER: /\d+/
 
